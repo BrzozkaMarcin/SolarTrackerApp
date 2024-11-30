@@ -58,7 +58,7 @@ python main.py
    - Follow the steps in the [Usage](#usage) section to start the application.
 
 3. **Select a Serial Port:**
-   - From the drop-down menu in the application, choose the appropriate serial port for your Solar Tracker.
+   - From the drop-down menu in the application, choose the appropriate serial port and baud rate for your Solar Tracker.
 
 4. **Establish the Connection:**
    - Click the "Connect" button to establish communication with the Solar Tracker.

@@ -60,19 +60,23 @@ selectPortFieldStyle = \
 
 portButtonStyle = \
 """
-            QPushButton {
-                background-color: #404040; 
-                color: white;
-                font-weight: bold;
-                border-radius: 5px;
-                padding: 5px;
-            }
-            QPushButton:hover {
-                background-color: #606060;
-            }
-            QPushButton:pressed {
-                background-color: #303030;
-            }
+    QPushButton {
+        background-color: #404040; 
+        color: white;
+        font-weight: bold;
+        border-radius: 5px;
+        padding: 5px;
+    }
+    QPushButton:hover {
+        background-color: #606060;
+    }
+    QPushButton:pressed {
+        background-color: #303030;
+    }
+    QPushButton:disabled {
+        background-color: #DEDEDE;
+        color: #C0C0C0;
+    }
 """
 
 messageBoxStyle = \

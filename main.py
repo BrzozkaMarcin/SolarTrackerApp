@@ -31,15 +31,17 @@ class UartReaderThread(QThread):
                     data = self.ser.readline().decode('utf-8').strip()
                     self.data_received.emit(data)
         except Exception as e:
-            self.data_received.emit(f"Błąd: {e}")
+            self.data_received.emit(f"Error: {e}")
         finally:
             if hasattr(self, 'ser') and self.ser.is_open:
                 self.ser.close()
 
     def stop(self):
         self.running = False
+        if hasattr(self, 'ser') and self.ser.is_open:
+            self.ser.cancel_read()
+            self.ser.close()
         self.wait()
-
 
 class UartApp(QMainWindow):
     def __init__(self):
@@ -49,11 +51,9 @@ class UartApp(QMainWindow):
 
     def initUI(self):
         self.setWindowTitle("SolarTrackerApp")
-        # base_path = getattr(sys, '_MEIPASS', os.path.abspath(os.path.dirname(__file__)))
-        # icon_path = os.path.join(base_path, 'icon.ico')
-        # self.setWindowIcon(QIcon(icon_path))
         self.setWindowIcon(QIcon(':/icon.ico'))
         self.setGeometry(100, 100, 500, 500)
+        self.setMinimumSize(500, 500)
 
         font = QFont()
         font.setPointSize(9)
@@ -62,20 +62,42 @@ class UartApp(QMainWindow):
         # Main layout
         main_layout = QVBoxLayout()
 
+        # Port and BaudRate Section
+        portBaudLayout = QGridLayout()
+
         # Port Section
-        selectPortLine = QHBoxLayout()
         self.portLabel = QLabel("Port:")
         self.selectPortBox = QComboBox()
         self.selectPortBox.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.selectPortBox.setStyleSheet(StyleSheets.selectPortFieldStyle)
         self.refreshPorts()
-        self.portButton = QPushButton("Połącz")
-        self.portButton.setStyleSheet(StyleSheets.portButtonStyle)
-        self.portButton.clicked.connect(self.toggleConnection)
+        self.refreshButton = QPushButton("Refresh")
+        self.refreshButton.setStyleSheet(StyleSheets.portButtonStyle)
+        self.refreshButton.clicked.connect(self.refreshPorts)
 
-        selectPortLine.addWidget(self.portLabel)
-        selectPortLine.addWidget(self.selectPortBox)
-        selectPortLine.addWidget(self.portButton)
+        portBaudLayout.addWidget(self.portLabel, 0, 0)
+        portBaudLayout.addWidget(self.selectPortBox, 0, 1)
+        portBaudLayout.addWidget(self.refreshButton, 0, 2)
+
+        # BaudRate Section
+        self.baudRateLabel = QLabel("BaudRate:")
+        self.baudRateBox = QComboBox()
+        self.baudRateBox.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.baudRateBox.setStyleSheet(StyleSheets.selectPortFieldStyle)
+        self.baudRateBox.addItems(["9600", "14400", "19200", "38400", "57600", "115200", "230400", "460800", "921600"])
+        self.portButton = QPushButton("Connect")
+        self.portButton.setStyleSheet(StyleSheets.portButtonStyle)
+        self.portButton.setMinimumWidth(QPushButton("Disconnect").sizeHint().width())
+        self.portButton.clicked.connect(self.toggleConnection)
+        
+        portBaudLayout.addWidget(self.baudRateLabel, 1, 0)
+        portBaudLayout.addWidget(self.baudRateBox, 1, 1)
+        portBaudLayout.addWidget(self.portButton, 1, 2)
+
+        # Adjust column stretch
+        portBaudLayout.setColumnStretch(0, 1)
+        portBaudLayout.setColumnStretch(1, 5)
+        portBaudLayout.setColumnStretch(2, 1)
 
         # Separator
         separator1 = QFrame()
@@ -85,19 +107,18 @@ class UartApp(QMainWindow):
         separator2.setFrameShape(QFrame.HLine)
         separator2.setFrameShadow(QFrame.Sunken)
 
-
         # Received Data Section
         self.data_grid = QGridLayout()
         self.data_grid.addWidget(QLabel("Sensor"), 0, 0, alignment=Qt.AlignCenter)
-        self.data_grid.addWidget(QLabel("Wartość"), 0, 1, alignment=Qt.AlignCenter)
+        self.data_grid.addWidget(QLabel("Value"), 0, 1, alignment=Qt.AlignCenter)
         
-        self.data_grid.addWidget(QLabel("Położenie"), 0, 3, alignment=Qt.AlignCenter)
-        self.data_grid.addWidget(QLabel("Wartość"), 0, 4, alignment=Qt.AlignCenter)
+        self.data_grid.addWidget(QLabel("Position"), 0, 3, alignment=Qt.AlignCenter)
+        self.data_grid.addWidget(QLabel("Value"), 0, 4, alignment=Qt.AlignCenter)
 
         self.sensor_labels = {}
         self.position_labels = {}
 
-        # Sensory
+        # Sensors
         sensors = ["LG", "PG", "LD", "PD"]
         for i, sensor in enumerate(sensors, start=1):
             sensor_label = QLabel(sensor, alignment=Qt.AlignCenter)
@@ -107,7 +128,7 @@ class UartApp(QMainWindow):
             self.data_grid.addWidget(sensor_label, i, 0)
             self.data_grid.addWidget(value_label, i, 1)
 
-        # Pozycje
+        # Position
         positions = ["X", "Y"]
         for i, pos in enumerate(positions, start=1):
             position_label = QLabel(pos, alignment=Qt.AlignCenter)
@@ -124,11 +145,10 @@ class UartApp(QMainWindow):
         # Message Box
         self.messageBox = QTextEdit()
         self.messageBox.setReadOnly(True)
-        # self.messageBox.setMaximumHeight(60)
         self.messageBox.setStyleSheet(StyleSheets.messageBoxStyle)
 
-        # Dodanie sekcji do głównego layoutu
-        main_layout.addLayout(selectPortLine)
+        # Main layout section
+        main_layout.addLayout(portBaudLayout)
         main_layout.addWidget(separator1)
         main_layout.addLayout(self.data_grid)
         main_layout.addWidget(separator2)
@@ -151,30 +171,36 @@ class UartApp(QMainWindow):
             # Disconnect
             self.uart_thread.stop()
             self.uart_thread = None
-            self.portButton.setText("Połącz")
+            self.portButton.setText("Connect")
+            self.baudRateBox.setEnabled(True)
+            self.refreshButton.setEnabled(True)
+            self.selectPortBox.setEnabled(True)
             self.messageBox.clear()
-            self.messageBox.append("Rozłączono.")
+            self.messageBox.append("Disconnected.")
         else:
             # Connect
             port = self.selectPortBox.currentText()
             if not port:
                 self.messageBox.clear()
-                self.messageBox.append(f"Wybierz port.")
+                self.messageBox.append(f"Select a port.")
                 return
-            baudrate = 9600  # Można dodać możliwość wyboru
+            baudrate = int(self.baudRateBox.currentText())
             self.uart_thread = UartReaderThread(port, baudrate)
             self.uart_thread.data_received.connect(self.handleData)
             self.uart_thread.start()
-            self.portButton.setText("Rozłącz")
+            self.portButton.setText("Disconnect")
+            self.baudRateBox.setEnabled(False)
+            self.refreshButton.setEnabled(False)
+            self.selectPortBox.setEnabled(False)
             self.messageBox.clear()
-            self.messageBox.append(f"Połączono z {port}.")
+            self.messageBox.append(f"Connected to {port}.")
 
     def handleData(self, data):
         try:
             json_data = json.loads(data)
             formatted_data = json.dumps(json_data, indent=4)
             self.messageBox.clear()
-            self.messageBox.append(f"Odebrano dane:\n{formatted_data}")
+            self.messageBox.append(f"Received data:\n{formatted_data}")
 
             # Aktualizacja pól dla sensorów
             sensors = json_data.get("sensors", {})
@@ -190,7 +216,7 @@ class UartApp(QMainWindow):
 
         except json.JSONDecodeError:
             self.messageBox.clear()
-            self.messageBox.append(f"Nieprawidłowy JSON: {data}")
+            self.messageBox.append(f"Incorrect JSON: {data}")
 
 
 if __name__ == "__main__":
