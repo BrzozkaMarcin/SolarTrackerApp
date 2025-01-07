@@ -58,6 +58,19 @@ selectPortFieldStyle = \
     }
 """
 
+ipBoxFieldStyle = \
+"""
+    QLineEdit {
+        background-color: #FFFFFF;
+        border: 2px solid #C0C0C0;
+        border-radius: 5px;
+        padding: 5px;
+    }
+    QLineEdit:hover {
+        border: 2px solid #808080;
+    }
+"""
+
 portButtonStyle = \
 """
     QPushButton {
@@ -98,4 +111,3 @@ positionFrameStyle = \
         background-color: #F7F7F7;
     }
 """
-

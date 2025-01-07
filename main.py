@@ -5,13 +5,16 @@ import serial
 import serial.tools.list_ports
 import json
 from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QGridLayout,
+    QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QGridLayout, QLineEdit,
     QWidget, QLabel, QPushButton, QComboBox, QTextEdit, QFrame, QSpacerItem, QSizePolicy
 )
 from PyQt5.QtGui import QIcon, QFont
-from PyQt5.QtCore import QThread, pyqtSignal, Qt
+from PyQt5.QtCore import QThread, pyqtSignal, Qt, QTimer
 import StyleSheets
 import resources_rc
+import requests
+import subprocess
+import re
 
 
 class UartReaderThread(QThread):
@@ -48,12 +51,15 @@ class UartApp(QMainWindow):
         super().__init__()
         self.initUI()
         self.uart_thread = None
+        self.web_timer = QTimer(self)
+        self.web_timer.timeout.connect(self.fetchDataFromServer)
+        self.is_fetching = False
 
     def initUI(self):
         self.setWindowTitle("SolarTrackerApp")
         self.setWindowIcon(QIcon(':/icon.ico'))
-        self.setGeometry(100, 100, 500, 500)
-        self.setMinimumSize(500, 500)
+        self.setGeometry(100, 100, 500, 600)
+        self.setMinimumSize(500, 600)
 
         font = QFont()
         font.setPointSize(9)
@@ -93,6 +99,20 @@ class UartApp(QMainWindow):
         portBaudLayout.addWidget(self.baudRateLabel, 1, 0)
         portBaudLayout.addWidget(self.baudRateBox, 1, 1)
         portBaudLayout.addWidget(self.portButton, 1, 2)
+
+        # Web Section
+        self.webLabel = QLabel("MAC Address:")
+        self.ipBox = QLineEdit()
+        self.ipBox.setText("9c-9c-1f-c5-77-d4")
+        self.ipBox.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.ipBox.setStyleSheet(StyleSheets.ipBoxFieldStyle)
+        self.fetchButton = QPushButton("Fetch")
+        self.fetchButton.setStyleSheet(StyleSheets.portButtonStyle)
+        self.fetchButton.clicked.connect(self.fetchWebData)
+
+        portBaudLayout.addWidget(self.webLabel, 2, 0)
+        portBaudLayout.addWidget(self.ipBox, 2, 1)
+        portBaudLayout.addWidget(self.fetchButton, 2, 2)
 
         # Adjust column stretch
         portBaudLayout.setColumnStretch(0, 1)
@@ -155,7 +175,7 @@ class UartApp(QMainWindow):
         main_layout.addWidget(QLabel("Info:"))
         main_layout.addWidget(self.messageBox)
 
-        # Ustawienie centralnego widgetu
+        # Central widget section
         central_widget = QWidget()
         central_widget.setLayout(main_layout)
         self.setCentralWidget(central_widget)
@@ -172,11 +192,15 @@ class UartApp(QMainWindow):
             self.uart_thread.stop()
             self.uart_thread = None
             self.portButton.setText("Connect")
+            self.messageBox.clear()
+            self.messageBox.append("Disconnected.")
+            
             self.baudRateBox.setEnabled(True)
             self.refreshButton.setEnabled(True)
             self.selectPortBox.setEnabled(True)
-            self.messageBox.clear()
-            self.messageBox.append("Disconnected.")
+            self.fetchButton.setEnabled(True)
+            self.ipBox.setEnabled(True)
+            
         else:
             # Connect
             port = self.selectPortBox.currentText()
@@ -189,11 +213,14 @@ class UartApp(QMainWindow):
             self.uart_thread.data_received.connect(self.handleData)
             self.uart_thread.start()
             self.portButton.setText("Disconnect")
+            self.messageBox.clear()
+            self.messageBox.append(f"Connected to {port}.")
+            
             self.baudRateBox.setEnabled(False)
             self.refreshButton.setEnabled(False)
             self.selectPortBox.setEnabled(False)
-            self.messageBox.clear()
-            self.messageBox.append(f"Connected to {port}.")
+            self.fetchButton.setEnabled(False)
+            self.ipBox.setEnabled(False)
 
     def handleData(self, data):
         try:
@@ -202,7 +229,7 @@ class UartApp(QMainWindow):
             self.messageBox.clear()
             self.messageBox.append(f"Received data:\n{formatted_data}")
 
-            # Aktualizacja pól dla sensorów
+            # Update sensors and position values
             sensors = json_data.get("sensors", {})
             position = json_data.get("position", {})
 
@@ -216,7 +243,84 @@ class UartApp(QMainWindow):
 
         except json.JSONDecodeError:
             self.messageBox.clear()
-            self.messageBox.append(f"Incorrect JSON: {data}")
+            self.messageBox.append(f"{data}")
+    
+    # Find IP by MAC
+    def find_ip_by_mac(self, mac_address):
+        try:
+            output = subprocess.check_output("arp -a", shell=True).decode('utf-8')
+            for line in output.splitlines():
+                if mac_address.lower() in line.lower():
+                    match = re.search(r"(\d+\.\d+\.\d+\.\d+)", line)
+                    if match:
+                        return match.group(1)
+            return None
+        except Exception as e:
+            self.messageBox.append(f"Error finding IP for MAC {mac_address}: {e}")
+            return None
+    
+    # Function periodic fetch data from Server
+    def fetchWebData(self):
+        if not self.is_fetching:
+            self.is_fetching = True
+            self.fetchButton.setText("Stop Fetching")
+            self.web_timer.start(1000)  # 1 sec
+            self.messageBox.append("Started fetching data from server...")
+            
+            self.selectPortBox.setEnabled(False)
+            self.refreshButton.setEnabled(False)
+            self.baudRateBox.setEnabled(False)
+            self.portButton.setEnabled(False)
+            self.ipBox.setEnabled(False)
+
+        else:
+            # Stop periodic fetch data
+            self.is_fetching = False
+            self.fetchButton.setText("Fetch")
+            self.web_timer.stop()
+            self.messageBox.append("Stopped fetching data from server.")
+            
+            self.selectPortBox.setEnabled(True)
+            self.refreshButton.setEnabled(True)
+            self.baudRateBox.setEnabled(True)
+            self.portButton.setEnabled(True)
+            self.ipBox.setEnabled(True)
+            
+    # Function fetch data from Server
+    def fetchDataFromServer(self):
+        mac_address = self.ipBox.text()
+        ip_address = self.find_ip_by_mac(mac_address)
+
+        if not ip_address:
+            self.messageBox.clear()
+            self.messageBox.append(f"Could not find IP for MAC {mac_address}")
+            return
+
+        url = f"http://{ip_address}/data"
+
+        try:
+            response = requests.get(url, timeout=1)
+            response.raise_for_status()
+            json_data = response.json()
+            formatted_data = json.dumps(json_data, indent=4)
+            self.messageBox.clear()
+            self.messageBox.append(f"Received data from {ip_address}:\n{formatted_data}")
+
+            # Update sensors and position values
+            sensors = json_data.get("sensors", {})
+            position = json_data.get("position", {})
+
+            for sensor, value in sensors.items():
+                if sensor in self.sensor_labels:
+                    self.sensor_labels[sensor].setText(str(value))
+
+            for pos, value in position.items():
+                if pos in self.position_labels:
+                    self.position_labels[pos].setText(str(value))
+
+        except requests.exceptions.RequestException as e:
+            self.messageBox.clear()
+            self.messageBox.append(f"{e}")
 
 
 if __name__ == "__main__":
